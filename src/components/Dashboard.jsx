@@ -1,68 +1,90 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Calendar, Users, CheckCircle } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { CheckCircle, Clock, AlertTriangle, Calendar as CalendarIcon } from 'lucide-react';
 
 const Dashboard = () => {
-  const [stats, setStats] = useState({ total: 0, porDepto: [] });
+  const [metrics, setMetrics] = useState({
+    total: 0,
+    completadas: 0,
+    atrasadas: 0,
+    enCurso: 0,
+    porDepartamento: []
+  });
 
   useEffect(() => {
-    fetchStats();
+    fetchMetrics();
   }, []);
 
-  const fetchStats = async () => {
-    const { data } = await supabase.from('actividades').select('departamento');
+  const fetchMetrics = async () => {
+    const { data, error } = await supabase.from('actividades').select('*');
     
     if (data) {
-      const counts = data.reduce((acc, item) => {
-        acc[item.departamento] = (acc[item.departamento] || 0) + 1;
+      const total = data.length;
+      const completadas = data.filter(a => a.progreso === 'Completado').length;
+      const atrasadas = data.filter(a => a.progreso === 'Atrasado').length;
+      const enCurso = data.filter(a => a.progreso === 'En curso' || a.progreso === 'Reprogramada').length;
+
+      // Agrupar por departamento para el gráfico de barras
+      const agrupado = data.reduce((acc, curr) => {
+        acc[curr.departamento] = (acc[curr.departamento] || 0) + 1;
         return acc;
       }, {});
 
-      const chartData = Object.keys(counts).map(key => ({
-        name: key,
-        cantidad: counts[key]
+      const chartData = Object.keys(agrupado).map(dept => ({
+        name: dept,
+        cantidad: agrupado[dept]
       }));
 
-      setStats({ total: data.length, porDepto: chartData });
+      setMetrics({ total, completadas, atrasadas, enCurso, porDepartamento: chartData });
     }
   };
 
-  const COLORS = ['#003876', '#0056b3', '#007bff', '#66a3ff'];
+  const pieData = [
+    { name: 'Completadas', value: metrics.completadas, color: '#059669' },
+    { name: 'Atrasadas', value: metrics.atrasadas, color: '#dc2626' },
+    { name: 'En curso', value: metrics.enCurso, color: '#d97706' },
+  ];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-700">
-      {/* TARJETAS DE RESUMEN */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-[#003876] flex items-center gap-4">
-          <div className="bg-blue-50 p-3 rounded-full text-[#003876]"><Calendar size={24}/></div>
-          <div>
-            <p className="text-sm text-gray-500 font-bold uppercase">Total Actividades</p>
-            <h4 className="text-3xl font-black text-gray-800">{stats.total}</h4>
-          </div>
-        </div>
-        {/* Puedes añadir más tarjetas aquí luego */}
+    <div className="p-6 space-y-8 bg-gray-50 min-h-screen">
+      <h1 className="text-2xl font-bold text-[#003876] flex items-center gap-2">
+        <CalendarIcon /> Panel de Control Estratégico
+      </h1>
+
+      {/* TARJETAS DE RESUMEN RÁPIDO */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <StatCard title="Total Actividades" value={metrics.total} icon={<CalendarIcon className="text-blue-600"/>} />
+        <StatCard title="Completadas" value={metrics.completadas} icon={<CheckCircle className="text-green-600"/>} />
+        <StatCard title="Atrasadas" value={metrics.atrasadas} icon={<AlertTriangle className="text-red-600"/>} />
+        <StatCard title="Pendientes" value={metrics.enCurso} icon={<Clock className="text-orange-600"/>} />
       </div>
 
-      {/* GRÁFICA DE DEPARTAMENTOS */}
-      <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-100">
-        <div className="mb-6">
-          <h3 className="text-xl font-bold text-gray-800">Actividades por Departamento</h3>
-          <p className="text-sm text-gray-500">Distribución de carga de trabajo en la Regional</p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* GRÁFICO DE PROGRESO (PIE) */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border h-[400px]">
+          <h3 className="text-lg font-semibold mb-4 text-gray-700">Estado de Cumplimiento</h3>
+          <ResponsiveContainer width="100%" height="90%">
+            <PieChart>
+              <Pie data={pieData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
-        
-        <div className="h-80 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stats.porDepto}>
+
+        {/* GRÁFICO POR DEPARTAMENTO (BAR) */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border h-[400px]">
+          <h3 className="text-lg font-semibold mb-4 text-gray-700">Actividades por Departamento</h3>
+          <ResponsiveContainer width="100%" height="90%">
+            <BarChart data={metrics.porDepartamento}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fontWeight: 'bold'}} />
-              <YAxis axisLine={false} tickLine={false} />
-              <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '10px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)'}} />
-              <Bar dataKey="cantidad" radius={[10, 10, 0, 0]}>
-                {stats.porDepto.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Bar>
+              <XAxis dataKey="name" fontSize={12} />
+              <YAxis />
+              <Tooltip cursor={{fill: '#f3f4f6'}} />
+              <Bar dataKey="cantidad" fill="#003876" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -70,5 +92,16 @@ const Dashboard = () => {
     </div>
   );
 };
+
+// Componente pequeño para las tarjetas
+const StatCard = ({ title, value, icon }) => (
+  <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+    <div>
+      <p className="text-sm text-gray-500 font-medium">{title}</p>
+      <p className="text-2xl font-bold text-gray-800">{value}</p>
+    </div>
+    <div className="p-3 bg-gray-50 rounded-lg">{icon}</div>
+  </div>
+);
 
 export default Dashboard;

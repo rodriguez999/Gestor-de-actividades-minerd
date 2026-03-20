@@ -1,46 +1,67 @@
-import { useState } from 'react';
-import Sidebar from './components/Sidebar';
+import { useEffect, useState } from 'react';
+import { supabase } from './supabaseClient';
+import Login from './components/Login';
 import CalendarView from './components/CalendarView';
 import Dashboard from './components/Dashboard';
+import Sidebar from './components/Sidebar'; // <--- ESTE ES EL QUE FALTABA
 
 function App() {
-  // Este "estado" guardará en qué pantalla estamos
-  const [view, setView] = useState('dashboard');
+  const [session, setSession] = useState(null);
+  const [currentView, setCurrentView] = useState('calendar');
+
+  // Lógica de autenticación que faltaba en tu código
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Función para cambiar de vista
+  const renderContent = () => {
+    switch (currentView) {
+      case 'calendar':
+        return <CalendarView />;
+      case 'dashboard':
+        return <Dashboard />;
+      default:
+        return <CalendarView />;
+    }
+  };
+
+  // Si no hay sesión, mostramos el Login
+  if (!session) {
+    return <Login />;
+  }
 
   return (
-    <div className="flex bg-gray-50 min-h-screen">
-      {/* Le pasamos setView al Sidebar para que los botones funcionen */}
-      <Sidebar setView={setView} currentView={view} />
+    <div className="flex min-h-screen bg-slate-50">
+      {/* Sidebar ahora sí funcionará porque lo importamos arriba */}
+      <Sidebar 
+        session={session} 
+        currentView={currentView} 
+        setCurrentView={setCurrentView} 
+      />
 
-      <main className="ml-64 flex-1 p-8">
-        <header className="mb-8 flex justify-between items-center">
+      <div className="flex-1 ml-64 flex flex-col min-w-0">
+        <header className="h-20 bg-white border-b border-gray-100 flex items-center justify-between px-10 shadow-sm sticky top-0 z-10">
           <div>
-            <h2 className="text-2xl font-bold text-[#003876]">
-              {view === 'dashboard' ? 'Dashboard Principal' : 'Calendario de Actividades'}
-            </h2>
-            <p className="text-gray-500 text-sm">Regional 17 Monte Plata</p>
+            <h2 className="text-gray-800 font-bold text-lg capitalize">{currentView}</h2>
+            <p className="text-[11px] text-gray-400 font-medium">Gestión Operativa MINERD</p>
           </div>
         </header>
 
-        {/* Lógica para cambiar de pantalla */}
-        <div className="animate-in fade-in duration-500">
-          {view === 'dashboard' && (
-            <div className="bg-white p-6 rounded-xl shadow-md">
-              <h3 className="text-lg font-semibold mb-4">Bienvenido, Bryan</h3>
-              <p>Selecciona "Calendario" en el menú para gestionar las fechas.</p>
-
-              <div className="animate-in fade-in duration-500">
-  {view === 'dashboard' && <Dashboard />}
-  {view === 'calendar' && <CalendarView />}
-</div>
-            </div>
-
-            
-          )}
-          
-          {view === 'calendar' && <CalendarView />}
-        </div>
-      </main>
+        <main className="p-8">
+          <div className="max-w-7xl mx-auto">
+            {renderContent()}
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

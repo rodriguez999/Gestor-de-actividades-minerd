@@ -1,38 +1,69 @@
-import { Calendar, Home, ClipboardList, LogOut } from 'lucide-react';
+import { supabase } from '../supabaseClient';
+import { LayoutDashboard, Calendar, LogOut, GraduationCap, User } from 'lucide-react';
 
-const Sidebar = ({ setView, currentView }) => {
+// Le pasamos 'session' y 'setCurrentView' como props desde App.jsx
+const Sidebar = ({ session, currentView, setCurrentView }) => {
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const menuItems = [
+    { id: 'dashboard', name: 'Dashboard', icon: <LayoutDashboard size={20} /> },
+    { id: 'calendar', name: 'Calendario', icon: <Calendar size={20} /> },
+  ];
+
   return (
-    <div className="w-64 h-screen bg-[#003876] text-white flex flex-col p-4 fixed left-0 top-0">
-      <div className="mb-8 flex items-center gap-3 p-2">
-        <div className="bg-white p-1 rounded">
-          <img src="https://www.minerd.gob.do/Logo_Minerd.png" alt="Logo" className="w-8 h-8 object-contain" />
+    <div className="h-screen w-64 bg-[#003876] text-white flex flex-col fixed left-0 top-0 shadow-xl z-20">
+      {/* LOGO */}
+      <div className="p-6 flex items-center gap-3 border-b border-blue-800">
+        <div className="bg-white p-2 rounded-lg shadow-md">
+          <GraduationCap className="text-[#003876]" size={24} />
         </div>
-        <h1 className="font-bold text-lg leading-tight">MINERD</h1>
+        <div className="flex flex-col">
+          <span className="font-bold text-sm tracking-tight leading-none">MINERD</span>
+          <span className="text-[10px] text-blue-300 font-bold uppercase mt-1">Actividades</span>
+        </div>
       </div>
 
-      <nav className="flex-1 space-y-2">
-        <button 
-          onClick={() => setView('dashboard')}
-          className={`flex items-center gap-3 w-full p-3 rounded-lg transition-colors ${currentView === 'dashboard' ? 'bg-blue-700' : 'hover:bg-blue-800'}`}
-        >
-          <Home size={20} /> Dashboard
-        </button>
-        
-        <button 
-          onClick={() => setView('calendar')}
-          className={`flex items-center gap-3 w-full p-3 rounded-lg transition-colors ${currentView === 'calendar' ? 'bg-blue-700' : 'hover:bg-blue-800'}`}
-        >
-          <Calendar size={20} /> Calendario
-        </button>
-
-        <button className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-blue-800 transition-colors opacity-50 cursor-not-allowed">
-          <ClipboardList size={20} /> Reportes (Próximamente)
-        </button>
+      {/* NAVEGACIÓN */}
+      <nav className="flex-1 mt-6 px-4 space-y-2">
+        {menuItems.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setCurrentView(item.id)}
+            className={`flex items-center gap-3 p-3 w-full rounded-xl transition-all ${
+              currentView === item.id 
+                ? 'bg-white text-[#003876] shadow-lg font-bold' 
+                : 'hover:bg-blue-800 text-blue-100'
+            }`}
+          >
+            {item.icon}
+            {item.name}
+          </button>
+        ))}
       </nav>
 
-      <div className="border-t border-blue-800 pt-4">
-        <button className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-red-600 transition-colors">
-          <LogOut size={20} /> Cerrar Sesión
+      {/* INFO USUARIO Y LOGOUT */}
+      <div className="p-4 border-t border-blue-800 bg-blue-900/20">
+        <div className="flex items-center gap-3 px-3 mb-4">
+          <div className="bg-blue-500/20 p-2 rounded-full border border-blue-400/30">
+            <User size={16} className="text-blue-200" />
+          </div>
+          <div className="overflow-hidden text-left">
+            <p className="text-[11px] font-bold truncate text-white">
+              {session?.user?.email || "Usuario"}
+            </p>
+            <p className="text-[9px] text-blue-400 uppercase font-black">Conectado</p>
+          </div>
+        </div>
+
+        <button 
+          onClick={handleLogout}
+          className="flex items-center gap-3 p-3 w-full text-red-300 hover:bg-red-500/10 hover:text-red-100 rounded-xl transition-all font-bold text-sm"
+        >
+          <LogOut size={18} />
+          <span>Cerrar Sesión</span>
         </button>
       </div>
     </div>
