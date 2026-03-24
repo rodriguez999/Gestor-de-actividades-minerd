@@ -4,12 +4,12 @@ import FullCalendar from '@fullcalendar/react';
 import daygridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import { supabase } from '../supabaseClient';
-import { Plus, X, Trash2, Search, Target, Users, AlertCircle, Mail } from 'lucide-react';
+import { Plus, X, Trash2, Search, Target, Mail, Loader2, Download } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable'; // Importación directa del plugin
+import autoTable from 'jspdf-autotable';
+import { toast } from 'react-hot-toast'; // Importación necesaria
 
-// 2. Definición del componente
 const CalendarView = () => {
   
   // 3. Estados (Hooks)
@@ -18,6 +18,7 @@ const CalendarView = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [loading, setLoading] = useState(false); // Para el spinner de guardado
   
   const [formData, setFormData] = useState({
     titulo: '',
@@ -33,46 +34,55 @@ const CalendarView = () => {
     notas: ''          
   });
 
-  // Función para generar PDF
-const generarPDF = () => {
-  try {
-    const doc = new jsPDF();
-    const azulMinerd = [0, 56, 118]; 
-    
-    doc.setFontSize(18);
-    doc.setTextColor(azulMinerd[0], azulMinerd[1], azulMinerd[2]);
-    doc.text("Cronograma de Actividades Institucionales", 14, 22);
-    
-    doc.setFontSize(11);
-    doc.setTextColor(100);
-    doc.text(`Fecha: ${new Date().toLocaleDateString('es-DO')}`, 14, 30);
+  // Función para definir colores de las "píldoras" de estado
+  const getStatusBadgeClass = (status) => {
+    switch (status) {
+      case 'Completado': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+      case 'Atrasado': return 'bg-rose-100 text-rose-700 border-rose-200';
+      case 'En curso': return 'bg-amber-100 text-amber-700 border-amber-200';
+      case 'Reprogramada': return 'bg-indigo-100 text-indigo-700 border-indigo-200';
+      default: return 'bg-gray-100 text-gray-700 border-gray-200';
+    }
+  };
 
-    const tableRows = filteredEvents.map(event => [
-      event.start ? new Date(event.start).toLocaleDateString('es-DO') : 'S/F',
-      event.extendedProps?.titulo || 'Sin título',
-      event.extendedProps?.departamento || 'General',
-      event.extendedProps?.progreso || 'N/A',
-      event.extendedProps?.meta || 'N/A'
-    ]);
+  const generarPDF = () => {
+    try {
+      const doc = new jsPDF();
+      const azulMinerd = [0, 56, 118]; 
+      
+      doc.setFontSize(18);
+      doc.setTextColor(azulMinerd[0], azulMinerd[1], azulMinerd[2]);
+      doc.text("Cronograma de Actividades Institucionales", 14, 22);
+      
+      doc.setFontSize(11);
+      doc.setTextColor(100);
+      doc.text(`Fecha: ${new Date().toLocaleDateString('es-DO')}`, 14, 30);
 
-    // CAMBIO CLAVE AQUÍ: Usamos autoTable(doc, { ... })
-    autoTable(doc, {
-      startY: 40,
-      head: [['Fecha', 'Actividad', 'Departamento', 'Estado', 'Meta']],
-      body: tableRows,
-      headStyles: { fillColor: azulMinerd },
-      styles: { fontSize: 9 },
-      alternateRowStyles: { fillColor: [240, 245, 255] },
-    });
+      const tableRows = filteredEvents.map(event => [
+        event.start ? new Date(event.start).toLocaleDateString('es-DO') : 'S/F',
+        event.extendedProps?.titulo || 'Sin título',
+        event.extendedProps?.departamento || 'General',
+        event.extendedProps?.progreso || 'N/A',
+        event.extendedProps?.meta || 'N/A'
+      ]);
 
-    doc.save(`Reporte_MINERD_${Date.now()}.pdf`);
-  } catch (err) {
-    console.error("Error detallado:", err);
-    alert("Error al generar el PDF. Revisa la consola.");
-  }
-};
+      autoTable(doc, {
+        startY: 40,
+        head: [['Fecha', 'Actividad', 'Departamento', 'Estado', 'Meta']],
+        body: tableRows,
+        headStyles: { fillColor: azulMinerd },
+        styles: { fontSize: 9 },
+        alternateRowStyles: { fillColor: [240, 245, 255] },
+      });
 
-  // 4. useEffect y funciones de carga
+      doc.save(`Reporte_MINERD_${Date.now()}.pdf`);
+      toast.success("PDF generado correctamente");
+    } catch (err) {
+      console.error("Error detallado:", err);
+      toast.error("Error al generar el PDF");
+    }
+  };
+
   useEffect(() => {
     fetchAños();
     fetchEvents();
@@ -115,14 +125,13 @@ const generarPDF = () => {
     event.extendedProps.departamento?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // 5. MANEJADOR DE ENVÍO
   const handleSubmit = async (e) => {
     e.preventDefault();
     const nuevoInicio = new Date(formData.inicio).getTime();
     const nuevoFin = new Date(formData.fin).getTime();
 
     if (nuevoFin <= nuevoInicio) {
-        alert("Error: La fecha de cierre no puede ser anterior a la de inicio.");
+        toast.error("La fecha de cierre no puede ser anterior a la de inicio.");
         return;
     }
 
@@ -137,10 +146,11 @@ const generarPDF = () => {
     });
 
     if (hayChoque) {
-      alert("🚨 ¡Choque de Horarios!\nYa hay una actividad programada en ese intervalo.");
+      toast.error("¡Choque de Horarios! Ya hay una actividad en ese intervalo.", { icon: '⚠️' });
       return;
     }
 
+    setLoading(true);
     const { error } = await supabase.from('actividades').insert([formData]);
     
     if (!error) {
@@ -158,8 +168,11 @@ const generarPDF = () => {
       };
 
       emailjs.send('service_yg37u1l', 'template_7m6yhff', emailParams, 'ZJUa3PrF_NdnmGOs3')
-      .then(() => alert("✅ Actividad guardada y correo enviado."))
-      .catch((err) => console.error("Error EmailJS:", err));
+      .then(() => toast.success("Actividad guardada y correo enviado."))
+      .catch((err) => {
+        console.error("Error EmailJS:", err);
+        toast.error("Actividad guardada, pero falló el envío del correo.");
+      });
 
       setIsModalOpen(false);
       setFormData({ 
@@ -169,23 +182,27 @@ const generarPDF = () => {
       });
       fetchEvents();
     } else {
-      alert("Error al guardar: " + error.message);
+      toast.error("Error al guardar: " + error.message);
     }
+    setLoading(false);
   };
 
   const eliminarActividad = async (id) => {
     if (window.confirm("¿Seguro que deseas eliminar esta actividad?")) {
       const { error } = await supabase.from('actividades').delete().eq('id', id);
       if (!error) {
+        toast.success("Actividad eliminada.");
         setSelectedEvent(null);
         fetchEvents();
+      } else {
+        toast.error("Error al eliminar.");
       }
     }
   };
 
   return (
     <div className="space-y-4">
-      {/* HEADER ÚNICO CORREGIDO */}
+      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
         <div className="relative w-full md:w-96">
           <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
@@ -201,9 +218,9 @@ const generarPDF = () => {
         <div className="flex gap-2 w-full md:w-auto">
           <button 
             onClick={generarPDF} 
-            className="flex-1 md:flex-none bg-green-600 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-green-700 shadow-md transition-all active:scale-95 font-bold"
+            className="flex-1 md:flex-none bg-emerald-600 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-md transition-all active:scale-95 font-bold"
           >
-            <Mail size={18} /> Exportar PDF
+            <Download size={18} /> Exportar PDF
           </button>
 
           <button 
@@ -252,16 +269,24 @@ const generarPDF = () => {
                 <input className="w-full border rounded-lg p-2 mt-1 text-sm" 
                   value={formData.meta} onChange={e => setFormData({...formData, meta: e.target.value})} />
               </div>
+              
+              {/* SELECTOR DE ESTADO ESTILO MICROSOFT LISTS */}
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase">Estado *</label>
-                <select className="w-full border rounded-lg p-2 mt-1 text-sm font-bold" 
-                  value={formData.progreso} onChange={e => setFormData({...formData, progreso: e.target.value})}>
-                  <option value="En curso">En curso</option>
-                  <option value="Completado">Completado</option>
-                  <option value="Atrasado">Atrasado</option>
-                  <option value="Reprogramada">Reprogramada</option>
-                </select>
+                <div className="relative mt-1">
+                    <select 
+                        className={`w-full border rounded-lg p-2 text-sm font-bold appearance-none outline-none transition-colors ${getStatusBadgeClass(formData.progreso)}`}
+                        value={formData.progreso} 
+                        onChange={e => setFormData({...formData, progreso: e.target.value})}
+                    >
+                        <option value="En curso" className="bg-white text-gray-800">En curso</option>
+                        <option value="Completado" className="bg-white text-gray-800">Completado</option>
+                        <option value="Atrasado" className="bg-white text-gray-800">Atrasado</option>
+                        <option value="Reprogramada" className="bg-white text-gray-800">Reprogramada</option>
+                    </select>
+                </div>
               </div>
+
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase">Inicio *</label>
                 <input type="datetime-local" required className="w-full border rounded-lg p-2 mt-1 text-sm" 
@@ -277,8 +302,17 @@ const generarPDF = () => {
                 <input type="email" required className="w-full border rounded-lg p-2 mt-1 text-sm" 
                   value={formData.responsable_email} onChange={e => setFormData({...formData, responsable_email: e.target.value})} />
               </div>
-              <button type="submit" className="md:col-span-2 bg-[#003876] text-white py-3 rounded-xl font-bold hover:bg-blue-900 shadow-lg transition-all">
-                Registrar y Enviar Correo
+
+              <button 
+                type="submit" 
+                disabled={loading}
+                className="md:col-span-2 bg-[#003876] text-white py-3 rounded-xl font-bold hover:bg-blue-900 shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {loading ? (
+                    <><Loader2 className="animate-spin" size={20} /> Guardando...</>
+                ) : (
+                    "Registrar y Enviar Correo"
+                )}
               </button>
             </form>
           </div>
@@ -294,6 +328,12 @@ const generarPDF = () => {
                 <h2 className="text-xl font-bold text-[#003876]">{selectedEvent.title}</h2>
                 <button onClick={() => setSelectedEvent(null)}><X size={24} className="text-gray-400"/></button>
               </div>
+              
+              {/* BADGE EN EL MODAL DE DETALLE */}
+              <div className={`inline-block px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadgeClass(selectedEvent.extendedProps.progreso)}`}>
+                {selectedEvent.extendedProps.progreso}
+              </div>
+
               <div className="grid grid-cols-1 gap-3">
                 <div className="flex items-center gap-2 text-sm text-gray-600"><Target size={16} className="text-blue-600"/> <b>Meta:</b> {selectedEvent.extendedProps.meta || 'N/A'}</div>
                 <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-700 italic border-l-4 border-blue-500">

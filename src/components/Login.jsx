@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { LogIn, Lock, Mail } from 'lucide-react';
+import logoMinerd from '../assets/logo-minerd.png'; // Asegúrate de que el archivo esté en esta ruta
+import { LogIn, Mail, Lock, Loader2 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -11,26 +13,55 @@ const Login = () => {
     e.preventDefault();
     setLoading(true);
     
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) {
-      alert("Error de acceso: " + error.message);
+      if (error) {
+        // Forzamos el mensaje en español para que el usuario entienda qué pasó
+        toast.error("Correo o contraseña incorrectos", {
+          duration: 5000,
+          id: 'login-error', // Evita que se amontonen muchos mensajes si hace clic varias veces
+          style: {
+            background: '#333',
+            color: '#fff',
+            borderLeft: '5px solid #dc2626'
+          },
+        });
+        console.log("Error de Supabase:", error.message);
+      } else if (data.user) {
+        toast.success(`¡Bienvenido al sistema, ${data.user.email.split('@')[0]}!`, {
+          icon: '👋',
+        });
+      }
+    } catch (err) {
+      toast.error("Ocurrió un error inesperado al conectar.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
       <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md border border-gray-100">
         <div className="text-center mb-8">
-          <div className="bg-[#003876] w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 rotate-3 shadow-blue-200 shadow-lg">
-            <Lock className="text-white -rotate-3" size={32} />
+          
+          {/* AQUÍ SUSTITUIMOS EL CUADRO AZUL POR EL LOGO QUE PASASTE */}
+          <div className="mx-auto mb-6 w-56 h-auto">
+            <img 
+              src={logoMinerd} 
+              alt="Logo MINERD" 
+              className="w-full h-auto object-contain"
+              onError={(e) => {
+                // Por si acaso la ruta local falla, usamos el link directo temporalmente
+                e.target.src = "https://i.imgur.com/428Nriw.png";
+              }}
+            />
           </div>
+
           <h1 className="text-2xl font-black text-gray-800 tracking-tight">Gestión de Actividades</h1>
-          <p className="text-blue-600 font-bold text-xs uppercase tracking-widest mt-1">Minerd - Informática Educativa</p>
+          <p className="text-blue-600 font-bold text-xs uppercase tracking-widest mt-1">Informática Educativa</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-5">
@@ -69,7 +100,17 @@ const Login = () => {
             disabled={loading}
             className="w-full bg-[#003876] text-white py-4 rounded-xl font-bold hover:bg-blue-900 shadow-lg shadow-blue-100 transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-70"
           >
-            {loading ? "Verificando..." : <><LogIn size={20} /> Iniciar Sesión</>}
+            {loading ? (
+              <>
+                <Loader2 className="animate-spin" size={20} />
+                <span>Verificando...</span>
+              </>
+            ) : (
+              <>
+                <LogIn size={20} /> 
+                Iniciar Sesión
+              </>
+            )}
           </button>
         </form>
         

@@ -4,6 +4,7 @@ import Login from './components/Login';
 import CalendarView from './components/CalendarView';
 import Dashboard from './components/Dashboard';
 import Sidebar from './components/Sidebar'; // <--- ESTE ES EL QUE FALTABA
+import { Toaster } from 'react-hot-toast';
 
 function App() {
   const [session, setSession] = useState(null);
@@ -40,8 +41,10 @@ function App() {
   }
 
   return (
+    
     <div className="flex min-h-screen bg-slate-50">
       {/* Sidebar ahora sí funcionará porque lo importamos arriba */}
+      
       <Sidebar 
         session={session} 
         currentView={currentView} 
@@ -49,6 +52,7 @@ function App() {
       />
 
       <div className="flex-1 ml-64 flex flex-col min-w-0">
+      <Toaster position="top-right" reverseOrder={false} />
         <header className="h-20 bg-white border-b border-gray-100 flex items-center justify-between px-10 shadow-sm sticky top-0 z-10">
           <div>
             <h2 className="text-gray-800 font-bold text-lg capitalize">{currentView}</h2>
@@ -63,6 +67,7 @@ function App() {
         </main>
       </div>
     </div>
+    
   );
 }
 
