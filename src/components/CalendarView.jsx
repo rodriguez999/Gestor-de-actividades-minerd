@@ -4,37 +4,35 @@ import FullCalendar from '@fullcalendar/react';
 import daygridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import { supabase } from '../supabaseClient';
-import { Plus, X, Trash2, Search, Target, Mail, Loader2, Download } from 'lucide-react';
+import { Plus, X, Trash2, Search, Target, Loader2, Download } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { toast } from 'react-hot-toast'; // Importación necesaria
+import { toast } from 'react-hot-toast';
 
 const CalendarView = () => {
   
-  // 3. Estados (Hooks)
+  // Estados
   const [events, setEvents] = useState([]);
   const [años, setAños] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [loading, setLoading] = useState(false); // Para el spinner de guardado
+  const [loading, setLoading] = useState(false);
   
   const [formData, setFormData] = useState({
     titulo: '',
     descripcion: '',
     departamento: 'Informatica Educativa',
-    responsable_email: '',
+    responsable_email: '', 
     año_id: '',
     inicio: '',
     fin: '',
     meta: '',          
     participantes: '', 
-    progreso: 'En curso', 
-    notas: ''          
+    progreso: 'En curso'
   });
 
-  // Función para definir colores de las "píldoras" de estado
   const getStatusBadgeClass = (status) => {
     switch (status) {
       case 'Completado': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
@@ -49,11 +47,9 @@ const CalendarView = () => {
     try {
       const doc = new jsPDF();
       const azulMinerd = [0, 56, 118]; 
-      
       doc.setFontSize(18);
       doc.setTextColor(azulMinerd[0], azulMinerd[1], azulMinerd[2]);
       doc.text("Cronograma de Actividades Institucionales", 14, 22);
-      
       doc.setFontSize(11);
       doc.setTextColor(100);
       doc.text(`Fecha: ${new Date().toLocaleDateString('es-DO')}`, 14, 30);
@@ -78,7 +74,6 @@ const CalendarView = () => {
       doc.save(`Reporte_MINERD_${Date.now()}.pdf`);
       toast.success("PDF generado correctamente");
     } catch (err) {
-      console.error("Error detallado:", err);
       toast.error("Error al generar el PDF");
     }
   };
@@ -131,60 +126,76 @@ const CalendarView = () => {
     const nuevoFin = new Date(formData.fin).getTime();
 
     if (nuevoFin <= nuevoInicio) {
-        toast.error("La fecha de cierre no puede ser anterior a la de inicio.");
-        return;
-    }
-
-    const hayChoque = events.some(event => {
-      const inicioExistente = new Date(event.start).getTime();
-      const finExistente = new Date(event.end).getTime();
-      return (
-        formData.departamento === event.extendedProps.departamento &&
-        nuevoInicio < finExistente && 
-        nuevoFin > inicioExistente
-      );
-    });
-
-    if (hayChoque) {
-      toast.error("¡Choque de Horarios! Ya hay una actividad en ese intervalo.", { icon: '⚠️' });
+      toast.error("La fecha de cierre no puede ser anterior a la de inicio.");
       return;
     }
 
     setLoading(true);
-    const { error } = await supabase.from('actividades').insert([formData]);
-    
-    if (!error) {
-      const emailParams = {
-        to_email: formData.responsable_email,
-        titulo: formData.titulo,
-        departamento: formData.departamento,
-        meta: formData.meta,
-        inicio: new Date(formData.inicio).toLocaleString('es-DO', { 
-          dateStyle: 'long', 
-          timeStyle: 'short' 
-        }), 
-        participantes: formData.participantes,
-        notas: formData.descripcion 
-      };
 
-      emailjs.send('service_yg37u1l', 'template_7m6yhff', emailParams, 'ZJUa3PrF_NdnmGOs3')
-      .then(() => toast.success("Actividad guardada y correo enviado."))
-      .catch((err) => {
-        console.error("Error EmailJS:", err);
-        toast.error("Actividad guardada, pero falló el envío del correo.");
+    try {
+      // 1. Guardar en Supabase
+      const { error: dbError } = await supabase.from('actividades').insert([formData]);
+      
+      if (dbError) {
+        toast.error("Error al guardar en la base de datos: " + dbError.message);
+        setLoading(false);
+        return;
+      }
+
+      // 2. Preparar lista de correos
+      const destinatarios = formData.responsable_email
+        .split(',')
+        .map(email => email.trim())
+        .filter(email => email.includes('@'));
+
+      // 3. Enviar correos y capturar resultados individuales
+      const promesasEnvio = destinatarios.map(correo => {
+        return emailjs.send(
+          'service_yg37u1l', 
+          'template_7m6yhff', 
+          {
+            to_email: correo,
+            titulo: formData.titulo,
+            departamento: formData.departamento,
+            meta: formData.meta,
+            inicio: new Date(formData.inicio).toLocaleString('es-DO', { 
+              dateStyle: 'long', 
+              timeStyle: 'short' 
+            }), 
+            participantes: formData.participantes,
+            notas: formData.descripcion 
+          }, 
+          'ZJUa3PrF_NdnmGOs3'
+        )
+        .then(() => ({ success: true, email: correo }))
+        .catch(() => ({ success: false, email: correo }));
       });
 
+      const resultados = await Promise.all(promesasEnvio);
+      const fallidos = resultados.filter(r => !r.success).map(r => r.email);
+
+      // 4. Notificaciones
+      if (fallidos.length === 0) {
+        toast.success(`Actividad guardada y notificaciones enviadas.`);
+      } else {
+        toast.warn(`Guardado, pero no se pudo enviar a: ${fallidos.join(', ')}`, {
+          duration: 6000
+        });
+      }
+
+      // 5. Cierre y limpieza
       setIsModalOpen(false);
       setFormData({ 
-        ...formData, 
-        titulo: '', descripcion: '', inicio: '', fin: '', 
-        meta: '', participantes: '', responsable_email: '', progreso: 'En curso' 
+        titulo: '', descripcion: '', departamento: 'Informatica Educativa', responsable_email: '', 
+        año_id: años[0]?.id || '', inicio: '', fin: '', meta: '', participantes: '', progreso: 'En curso' 
       });
       fetchEvents();
-    } else {
-      toast.error("Error al guardar: " + error.message);
+
+    } catch (err) {
+      toast.error("Error inesperado al procesar la solicitud.");
+    } finally {
+      setLoading(false); // Siempre desbloquea el botón
     }
-    setLoading(false);
   };
 
   const eliminarActividad = async (id) => {
@@ -216,17 +227,10 @@ const CalendarView = () => {
         </div>
         
         <div className="flex gap-2 w-full md:w-auto">
-          <button 
-            onClick={generarPDF} 
-            className="flex-1 md:flex-none bg-emerald-600 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-md transition-all active:scale-95 font-bold"
-          >
+          <button onClick={generarPDF} className="flex-1 md:flex-none bg-emerald-600 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-md transition-all active:scale-95 font-bold">
             <Download size={18} /> Exportar PDF
           </button>
-
-          <button 
-            onClick={() => setIsModalOpen(true)} 
-            className="flex-1 md:flex-none bg-[#003876] text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-800 shadow-md transition-all active:scale-95 font-bold"
-          >
+          <button onClick={() => setIsModalOpen(true)} className="flex-1 md:flex-none bg-[#003876] text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-800 shadow-md transition-all active:scale-95 font-bold">
             <Plus size={18} /> Nueva Actividad
           </button>
         </div>
@@ -240,11 +244,7 @@ const CalendarView = () => {
           events={filteredEvents}
           locale="es"
           height="65vh"
-          headerToolbar={{
-            left: 'prev,next today',
-            center: 'title',
-            right: 'dayGridMonth,timeGridWeek'
-          }}
+          headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' }}
           eventClick={(info) => setSelectedEvent(info.event)}
         />
       </div>
@@ -260,59 +260,50 @@ const CalendarView = () => {
             
             <form onSubmit={handleSubmit} className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
-                <label className="text-xs font-bold text-gray-500 uppercase">Nombre *</label>
-                <input required className="w-full border rounded-lg p-2 mt-1" 
+                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Nombre de la Actividad *</label>
+                <input required placeholder="Ej: Taller de Capacitación docente" className="w-full border rounded-lg p-2 mt-1 outline-none focus:ring-2 focus:ring-blue-500" 
                   value={formData.titulo} onChange={e => setFormData({...formData, titulo: e.target.value})} />
               </div>
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Meta</label>
-                <input className="w-full border rounded-lg p-2 mt-1 text-sm" 
+                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Meta</label>
+                <input placeholder="Ej: 50 participantes" className="w-full border rounded-lg p-2 mt-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" 
                   value={formData.meta} onChange={e => setFormData({...formData, meta: e.target.value})} />
               </div>
-              
-              {/* SELECTOR DE ESTADO ESTILO MICROSOFT LISTS */}
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Estado *</label>
-                <div className="relative mt-1">
-                    <select 
-                        className={`w-full border rounded-lg p-2 text-sm font-bold appearance-none outline-none transition-colors ${getStatusBadgeClass(formData.progreso)}`}
-                        value={formData.progreso} 
-                        onChange={e => setFormData({...formData, progreso: e.target.value})}
-                    >
-                        <option value="En curso" className="bg-white text-gray-800">En curso</option>
-                        <option value="Completado" className="bg-white text-gray-800">Completado</option>
-                        <option value="Atrasado" className="bg-white text-gray-800">Atrasado</option>
-                        <option value="Reprogramada" className="bg-white text-gray-800">Reprogramada</option>
-                    </select>
-                </div>
+                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Estado *</label>
+                <select className={`w-full border rounded-lg p-2 mt-1 text-sm font-bold outline-none ${getStatusBadgeClass(formData.progreso)}`}
+                  value={formData.progreso} onChange={e => setFormData({...formData, progreso: e.target.value})}>
+                    <option value="En curso">En curso</option>
+                    <option value="Completado">Completado</option>
+                    <option value="Atrasado">Atrasado</option>
+                    <option value="Reprogramada">Reprogramada</option>
+                </select>
               </div>
-
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Inicio *</label>
-                <input type="datetime-local" required className="w-full border rounded-lg p-2 mt-1 text-sm" 
+                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Inicio *</label>
+                <input type="datetime-local" required className="w-full border rounded-lg p-2 mt-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" 
                   value={formData.inicio} onChange={e => setFormData({...formData, inicio: e.target.value})} />
               </div>
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Cierre *</label>
-                <input type="datetime-local" required className="w-full border rounded-lg p-2 mt-1 text-sm" 
+                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Cierre *</label>
+                <input type="datetime-local" required className="w-full border rounded-lg p-2 mt-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" 
                   value={formData.fin} onChange={e => setFormData({...formData, fin: e.target.value})} />
               </div>
+
               <div className="md:col-span-2">
-                <label className="text-xs font-bold text-gray-500 uppercase">Email Responsable *</label>
-                <input type="email" required className="w-full border rounded-lg p-2 mt-1 text-sm" 
+                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Emails Responsables * <span className="lowercase font-normal">(Separados por coma)</span></label>
+                <input type="text" required placeholder="ejemplo1@minerd.gob.do, ejemplo2@minerd.gob.do" className="w-full border rounded-lg p-2 mt-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" 
                   value={formData.responsable_email} onChange={e => setFormData({...formData, responsable_email: e.target.value})} />
               </div>
+              
+              <div className="md:col-span-2">
+                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Descripción / Notas Adicionales</label>
+                <textarea placeholder="Detalles que se enviarán en el cuerpo del correo..." className="w-full border rounded-lg p-2 mt-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" rows="3"
+                  value={formData.descripcion} onChange={e => setFormData({...formData, descripcion: e.target.value})} />
+              </div>
 
-              <button 
-                type="submit" 
-                disabled={loading}
-                className="md:col-span-2 bg-[#003876] text-white py-3 rounded-xl font-bold hover:bg-blue-900 shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {loading ? (
-                    <><Loader2 className="animate-spin" size={20} /> Guardando...</>
-                ) : (
-                    "Registrar y Enviar Correo"
-                )}
+              <button type="submit" disabled={loading} className="md:col-span-2 bg-[#003876] text-white py-3 rounded-xl font-bold hover:bg-blue-900 shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95">
+                {loading ? <><Loader2 className="animate-spin" size={20} /> Guardando...</> : "Registrar y Enviar Correo"}
               </button>
             </form>
           </div>
@@ -322,18 +313,15 @@ const CalendarView = () => {
       {/* MODAL DE DETALLES */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in duration-150">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
             <div className="p-6 space-y-4">
               <div className="flex justify-between items-start border-b pb-3">
                 <h2 className="text-xl font-bold text-[#003876]">{selectedEvent.title}</h2>
                 <button onClick={() => setSelectedEvent(null)}><X size={24} className="text-gray-400"/></button>
               </div>
-              
-              {/* BADGE EN EL MODAL DE DETALLE */}
               <div className={`inline-block px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadgeClass(selectedEvent.extendedProps.progreso)}`}>
                 {selectedEvent.extendedProps.progreso}
               </div>
-
               <div className="grid grid-cols-1 gap-3">
                 <div className="flex items-center gap-2 text-sm text-gray-600"><Target size={16} className="text-blue-600"/> <b>Meta:</b> {selectedEvent.extendedProps.meta || 'N/A'}</div>
                 <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-700 italic border-l-4 border-blue-500">
