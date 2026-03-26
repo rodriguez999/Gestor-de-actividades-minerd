@@ -4,7 +4,7 @@ import FullCalendar from '@fullcalendar/react';
 import daygridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import { supabase } from '../supabaseClient';
-import { Plus, X, Trash2, Search, Target, Loader2, Download } from 'lucide-react';
+import { Plus, X, Trash2, Search, Target, Loader2, Download, Mail } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -19,6 +19,7 @@ const CalendarView = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [sendingRecordatorio, setSendingRecordatorio] = useState(false);
   
   const [formData, setFormData] = useState({
     titulo: '',
@@ -198,6 +199,77 @@ const CalendarView = () => {
     }
   };
 
+  // NUEVA FUNCIÓN: Actualizar estado desde el modal de detalles
+  const actualizarEstado = async (id, nuevoEstado) => {
+    const { error } = await supabase
+      .from('actividades')
+      .update({ progreso: nuevoEstado })
+      .eq('id', id);
+
+    if (!error) {
+      toast.success(`Estado actualizado a ${nuevoEstado}`);
+      // Actualizamos el evento seleccionado para que el modal refleje el cambio
+      setSelectedEvent(prev => ({
+        ...prev,
+        extendedProps: { ...prev.extendedProps, progreso: nuevoEstado }
+      }));
+      fetchEvents(); // Refresca el calendario
+    } else {
+      toast.error("Error al actualizar el estado");
+    }
+  };
+
+  // NUEVA FUNCIÓN: Enviar recordatorio manual
+  const enviarRecordatorioManual = async () => {
+    if (!selectedEvent) return;
+    
+    setSendingRecordatorio(true);
+    const props = selectedEvent.extendedProps;
+    
+    // Preparar lista de correos
+    const destinatarios = props.responsable_email
+      .split(',')
+      .map(email => email.trim())
+      .filter(email => email.includes('@'));
+
+    if (destinatarios.length === 0) {
+      toast.error("No hay correos válidos para enviar el recordatorio.");
+      setSendingRecordatorio(false);
+      return;
+    }
+
+    // Enviar correos individualmente (usando la misma lógica resilient)
+    const promesasEnvio = destinatarios.map(correo => {
+      return emailjs.send(
+        'service_yg37u1l', 
+        'template_7m6yhff', 
+        {
+          to_email: correo,
+          titulo: `RECORDATORIO: ${props.titulo}`,
+          departamento: props.departamento,
+          meta: props.meta,
+          inicio: new Date(props.inicio).toLocaleString('es-DO', { dateStyle: 'long', timeStyle: 'short' }), 
+          participantes: props.participantes,
+          notas: `*** ESTO ES UN RECORDATORIO MANUAL ***\n\nLa actividad está próxima a iniciar o cerrar. Por favor, verificar su estado actual.\n\nDescripción original:\n${props.descripcion || 'Sin descripción'}`
+        }, 
+        'ZJUa3PrF_NdnmGOs3'
+      )
+      .then(() => ({ success: true, email: correo }))
+      .catch(() => ({ success: false, email: correo }));
+    });
+
+    const resultados = await Promise.all(promesasEnvio);
+    const fallidos = resultados.filter(r => !r.success).map(r => r.email);
+
+    if (fallidos.length === 0) {
+      toast.success(`Recordatorios enviados a ${destinatarios.length} responsables.`);
+    } else {
+      toast.warn(`Se enviaron algunos, pero falló a: ${fallidos.join(', ')}`, { duration: 6000 });
+    }
+    
+    setSendingRecordatorio(false);
+  };
+
   const eliminarActividad = async (id) => {
     if (window.confirm("¿Seguro que deseas eliminar esta actividad?")) {
       const { error } = await supabase.from('actividades').delete().eq('id', id);
@@ -310,7 +382,7 @@ const CalendarView = () => {
         </div>
       )}
 
-      {/* MODAL DE DETALLES */}
+      {/* MODAL DE DETALLES INTERACTIVO */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
@@ -319,18 +391,47 @@ const CalendarView = () => {
                 <h2 className="text-xl font-bold text-[#003876]">{selectedEvent.title}</h2>
                 <button onClick={() => setSelectedEvent(null)}><X size={24} className="text-gray-400"/></button>
               </div>
-              <div className={`inline-block px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadgeClass(selectedEvent.extendedProps.progreso)}`}>
-                {selectedEvent.extendedProps.progreso}
+              
+              {/* SELECTOR DE ESTADO DIRECTO */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Cambiar Estado</label>
+                <select 
+                  className={`w-full border rounded-lg p-2 text-sm font-bold outline-none ${getStatusBadgeClass(selectedEvent.extendedProps.progreso)}`}
+                  value={selectedEvent.extendedProps.progreso}
+                  onChange={(e) => actualizarEstado(selectedEvent.id, e.target.value)}
+                >
+                  <option value="En curso">En curso</option>
+                  <option value="Completado">Completado</option>
+                  <option value="Atrasado">Atrasado</option>
+                  <option value="Reprogramada">Reprogramada</option>
+                </select>
               </div>
-              <div className="grid grid-cols-1 gap-3">
-                <div className="flex items-center gap-2 text-sm text-gray-600"><Target size={16} className="text-blue-600"/> <b>Meta:</b> {selectedEvent.extendedProps.meta || 'N/A'}</div>
+
+              <div className="grid grid-cols-1 gap-3 pt-2">
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <Target size={16} className="text-blue-600"/> <b>Meta:</b> {selectedEvent.extendedProps.meta || 'N/A'}
+                </div>
                 <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-700 italic border-l-4 border-blue-500">
                    {selectedEvent.extendedProps.descripcion || 'Sin descripción'}
                 </div>
               </div>
-              <div className="pt-4 flex gap-2">
-                <button onClick={() => eliminarActividad(selectedEvent.id)} className="flex-1 bg-red-100 text-red-600 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-red-200 transition-colors"><Trash2 size={16}/> Eliminar</button>
-                <button onClick={() => setSelectedEvent(null)} className="flex-1 bg-gray-100 text-gray-600 py-2 rounded-lg font-bold hover:bg-gray-200">Cerrar</button>
+
+              {/* BOTÓN DE RECORDATORIO MANUAL */}
+              <button 
+                onClick={enviarRecordatorioManual} 
+                disabled={sendingRecordatorio}
+                className="w-full bg-amber-50 text-amber-700 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-amber-100 transition-colors border border-amber-200 text-sm disabled:opacity-50"
+              >
+                {sendingRecordatorio ? <><Loader2 className="animate-spin" size={16} /> Enviando...</> : <><Mail size={16}/> Enviar Recordatorio Manual</>}
+              </button>
+
+              <div className="pt-4 flex gap-2 border-t">
+                <button onClick={() => eliminarActividad(selectedEvent.id)} className="flex-1 bg-red-100 text-red-600 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-red-200 transition-colors">
+                  <Trash2 size={16}/> Eliminar
+                </button>
+                <button onClick={() => setSelectedEvent(null)} className="flex-1 bg-gray-100 text-gray-600 py-2 rounded-lg font-bold hover:bg-gray-200">
+                  Cerrar
+                </button>
               </div>
             </div>
           </div>
