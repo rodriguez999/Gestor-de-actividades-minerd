@@ -10,7 +10,19 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { toast } from 'react-hot-toast';
 
+const DEPARTAMENTOS_OFICIALES = [
+  "Informatica Educativa",
+  "Recursos Humanos",
+  "Planificación",
+  "Administrativo",
+  "Pedagogía",
+  "General"
+];
+
 const CalendarView = () => {
+  // Datos del Usuario logueado
+  const userRole = localStorage.getItem('userRole') || 'visor';
+  const userDept = localStorage.getItem('userDept') || 'General';
   
   // Estados
   const [events, setEvents] = useState([]);
@@ -24,7 +36,7 @@ const CalendarView = () => {
   const [formData, setFormData] = useState({
     titulo: '',
     descripcion: '',
-    departamento: 'Informatica Educativa',
+    departamento: userDept, // Se inicializa con el departamento del usuario
     responsable_email: '', 
     año_id: '',
     inicio: '',
@@ -123,6 +135,11 @@ const CalendarView = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (userRole === 'visor') {
+      toast.error("No tienes permisos para realizar esta acción");
+      return;
+    }
+
     const nuevoInicio = new Date(formData.inicio).getTime();
     const nuevoFin = new Date(formData.fin).getTime();
 
@@ -134,7 +151,6 @@ const CalendarView = () => {
     setLoading(true);
 
     try {
-      // 1. Guardar en Supabase
       const { error: dbError } = await supabase.from('actividades').insert([formData]);
       
       if (dbError) {
@@ -143,13 +159,11 @@ const CalendarView = () => {
         return;
       }
 
-      // 2. Preparar lista de correos
       const destinatarios = formData.responsable_email
         .split(',')
         .map(email => email.trim())
         .filter(email => email.includes('@'));
 
-      // 3. Enviar correos y capturar resultados individuales
       const promesasEnvio = destinatarios.map(correo => {
         return emailjs.send(
           'service_yg37u1l', 
@@ -175,7 +189,6 @@ const CalendarView = () => {
       const resultados = await Promise.all(promesasEnvio);
       const fallidos = resultados.filter(r => !r.success).map(r => r.email);
 
-      // 4. Notificaciones
       if (fallidos.length === 0) {
         toast.success(`Actividad guardada y notificaciones enviadas.`);
       } else {
@@ -184,10 +197,9 @@ const CalendarView = () => {
         });
       }
 
-      // 5. Cierre y limpieza
       setIsModalOpen(false);
       setFormData({ 
-        titulo: '', descripcion: '', departamento: 'Informatica Educativa', responsable_email: '', 
+        titulo: '', descripcion: '', departamento: userDept, responsable_email: '', 
         año_id: años[0]?.id || '', inicio: '', fin: '', meta: '', participantes: '', progreso: 'En curso' 
       });
       fetchEvents();
@@ -195,12 +207,16 @@ const CalendarView = () => {
     } catch (err) {
       toast.error("Error inesperado al procesar la solicitud.");
     } finally {
-      setLoading(false); // Siempre desbloquea el botón
+      setLoading(false);
     }
   };
 
-  // NUEVA FUNCIÓN: Actualizar estado desde el modal de detalles
   const actualizarEstado = async (id, nuevoEstado) => {
+    if (userRole !== 'admin') {
+      toast.error("Solo administradores pueden cambiar el estado");
+      return;
+    }
+
     const { error } = await supabase
       .from('actividades')
       .update({ progreso: nuevoEstado })
@@ -208,37 +224,32 @@ const CalendarView = () => {
 
     if (!error) {
       toast.success(`Estado actualizado a ${nuevoEstado}`);
-      // Actualizamos el evento seleccionado para que el modal refleje el cambio
       setSelectedEvent(prev => ({
         ...prev,
         extendedProps: { ...prev.extendedProps, progreso: nuevoEstado }
       }));
-      fetchEvents(); // Refresca el calendario
+      fetchEvents();
     } else {
       toast.error("Error al actualizar el estado");
     }
   };
 
-  // NUEVA FUNCIÓN: Enviar recordatorio manual
   const enviarRecordatorioManual = async () => {
     if (!selectedEvent) return;
     
     setSendingRecordatorio(true);
     const props = selectedEvent.extendedProps;
-    
-    // Preparar lista de correos
     const destinatarios = props.responsable_email
       .split(',')
       .map(email => email.trim())
       .filter(email => email.includes('@'));
 
     if (destinatarios.length === 0) {
-      toast.error("No hay correos válidos para enviar el recordatorio.");
+      toast.error("No hay correos válidos.");
       setSendingRecordatorio(false);
       return;
     }
 
-    // Enviar correos individualmente (usando la misma lógica resilient)
     const promesasEnvio = destinatarios.map(correo => {
       return emailjs.send(
         'service_yg37u1l', 
@@ -250,7 +261,7 @@ const CalendarView = () => {
           meta: props.meta,
           inicio: new Date(props.inicio).toLocaleString('es-DO', { dateStyle: 'long', timeStyle: 'short' }), 
           participantes: props.participantes,
-          notas: `*** ESTO ES UN RECORDATORIO MANUAL ***\n\nLa actividad está próxima a iniciar o cerrar. Por favor, verificar su estado actual.\n\nDescripción original:\n${props.descripcion || 'Sin descripción'}`
+          notas: `*** RECORDATORIO MANUAL ***\n\nDescripción original:\n${props.descripcion || 'Sin descripción'}`
         }, 
         'ZJUa3PrF_NdnmGOs3'
       )
@@ -262,23 +273,31 @@ const CalendarView = () => {
     const fallidos = resultados.filter(r => !r.success).map(r => r.email);
 
     if (fallidos.length === 0) {
-      toast.success(`Recordatorios enviados a ${destinatarios.length} responsables.`);
+      toast.success(`Recordatorios enviados.`);
     } else {
-      toast.warn(`Se enviaron algunos, pero falló a: ${fallidos.join(', ')}`, { duration: 6000 });
+      toast.warn(`Fallo en: ${fallidos.join(', ')}`, { duration: 6000 });
     }
     
     setSendingRecordatorio(false);
   };
 
   const eliminarActividad = async (id) => {
-    if (window.confirm("¿Seguro que deseas eliminar esta actividad?")) {
+    // Verificamos si tiene permiso antes de intentar borrar
+    const esDuenio = userRole === 'responsable' && selectedEvent.extendedProps.departamento === userDept;
+    
+    if (userRole !== 'admin' && !esDuenio) {
+      toast.error("No tienes permiso para eliminar esta actividad");
+      return;
+    }
+  
+    if (window.confirm("¿Estás seguro de eliminar esta actividad?")) {
       const { error } = await supabase.from('actividades').delete().eq('id', id);
-      if (!error) {
-        toast.success("Actividad eliminada.");
-        setSelectedEvent(null);
-        fetchEvents();
+      if (error) {
+        toast.error("Error al eliminar");
       } else {
-        toast.error("Error al eliminar.");
+        toast.success("Actividad eliminada");
+        setSelectedEvent(null);
+        fetchActividades();
       }
     }
   };
@@ -302,9 +321,17 @@ const CalendarView = () => {
           <button onClick={generarPDF} className="flex-1 md:flex-none bg-emerald-600 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-md transition-all active:scale-95 font-bold">
             <Download size={18} /> Exportar PDF
           </button>
-          <button onClick={() => setIsModalOpen(true)} className="flex-1 md:flex-none bg-[#003876] text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-800 shadow-md transition-all active:scale-95 font-bold">
-            <Plus size={18} /> Nueva Actividad
-          </button>
+          
+          {/* RESTRICCIÓN DE BOTÓN POR ROL */}
+          {/* Ahora permite entrar a admin y responsable (cualquiera que NO sea visor) */}
+{userRole !== 'visor' && (
+  <button 
+    onClick={() => setIsModalOpen(true)} 
+    className="flex-1 md:flex-none bg-[#003876] text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-800 shadow-md transition-all active:scale-95 font-bold"
+  >
+    <Plus size={18} /> Nueva Actividad
+  </button>
+)}
         </div>
       </div>
 
@@ -336,6 +363,21 @@ const CalendarView = () => {
                 <input required placeholder="Ej: Taller de Capacitación docente" className="w-full border rounded-lg p-2 mt-1 outline-none focus:ring-2 focus:ring-blue-500" 
                   value={formData.titulo} onChange={e => setFormData({...formData, titulo: e.target.value})} />
               </div>
+
+              {/* SELECTOR DE DEPARTAMENTO DINÁMICO */}
+              <div className="md:col-span-2">
+                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Departamento *</label>
+                <select 
+                  className="w-full border rounded-lg p-2 mt-1 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={formData.departamento}
+                  onChange={e => setFormData({...formData, departamento: e.target.value})}
+                >
+                  {DEPARTAMENTOS_OFICIALES.map(dept => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase ml-1">Meta</label>
                 <input placeholder="Ej: 50 participantes" className="w-full border rounded-lg p-2 mt-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" 
@@ -363,14 +405,14 @@ const CalendarView = () => {
               </div>
 
               <div className="md:col-span-2">
-                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Emails Responsables * <span className="lowercase font-normal">(Separados por coma)</span></label>
-                <input type="text" required placeholder="ejemplo1@minerd.gob.do, ejemplo2@minerd.gob.do" className="w-full border rounded-lg p-2 mt-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" 
+                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Emails Responsables *</label>
+                <input type="text" required placeholder="ejemplo1@minerd.gob.do" className="w-full border rounded-lg p-2 mt-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" 
                   value={formData.responsable_email} onChange={e => setFormData({...formData, responsable_email: e.target.value})} />
               </div>
               
               <div className="md:col-span-2">
                 <label className="text-xs font-bold text-gray-500 uppercase ml-1">Descripción / Notas Adicionales</label>
-                <textarea placeholder="Detalles que se enviarán en el cuerpo del correo..." className="w-full border rounded-lg p-2 mt-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" rows="3"
+                <textarea placeholder="Detalles del correo..." className="w-full border rounded-lg p-2 mt-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" rows="3"
                   value={formData.descripcion} onChange={e => setFormData({...formData, descripcion: e.target.value})} />
               </div>
 
@@ -392,11 +434,12 @@ const CalendarView = () => {
                 <button onClick={() => setSelectedEvent(null)}><X size={24} className="text-gray-400"/></button>
               </div>
               
-              {/* SELECTOR DE ESTADO DIRECTO */}
+              {/* SELECTOR DE ESTADO (EDITABLE SOLO POR ADMIN) */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Cambiar Estado</label>
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Estado de Actividad</label>
                 <select 
-                  className={`w-full border rounded-lg p-2 text-sm font-bold outline-none ${getStatusBadgeClass(selectedEvent.extendedProps.progreso)}`}
+                  disabled={userRole !== 'admin'}
+                  className={`w-full border rounded-lg p-2 text-sm font-bold outline-none ${getStatusBadgeClass(selectedEvent.extendedProps.progreso)} ${userRole !== 'admin' ? 'opacity-70 cursor-not-allowed' : ''}`}
                   value={selectedEvent.extendedProps.progreso}
                   onChange={(e) => actualizarEstado(selectedEvent.id, e.target.value)}
                 >
@@ -416,7 +459,7 @@ const CalendarView = () => {
                 </div>
               </div>
 
-              {/* BOTÓN DE RECORDATORIO MANUAL */}
+              {/* RECORDATORIO MANUAL (TODOS PUEDEN ENVIAR SI ESTÁN AUTENTICADOS) */}
               <button 
                 onClick={enviarRecordatorioManual} 
                 disabled={sendingRecordatorio}
@@ -426,9 +469,15 @@ const CalendarView = () => {
               </button>
 
               <div className="pt-4 flex gap-2 border-t">
-                <button onClick={() => eliminarActividad(selectedEvent.id)} className="flex-1 bg-red-100 text-red-600 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-red-200 transition-colors">
-                  <Trash2 size={16}/> Eliminar
-                </button>
+                {/* Lógica: Si es Admin, borra todo. Si es Responsable, borra solo lo de su departamento */}
+{(userRole === 'admin' || (userRole === 'responsable' && selectedEvent.extendedProps.departamento === userDept)) && (
+  <button 
+    onClick={() => eliminarActividad(selectedEvent.id)} 
+    className="flex-1 bg-red-100 text-red-600 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-red-200 transition-colors"
+  >
+    <Trash2 size={16}/> Eliminar
+  </button>
+)}
                 <button onClick={() => setSelectedEvent(null)} className="flex-1 bg-gray-100 text-gray-600 py-2 rounded-lg font-bold hover:bg-gray-200">
                   Cerrar
                 </button>
