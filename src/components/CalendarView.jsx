@@ -212,8 +212,11 @@ const CalendarView = () => {
   };
 
   const actualizarEstado = async (id, nuevoEstado) => {
-    if (userRole !== 'admin') {
-      toast.error("Solo administradores pueden cambiar el estado");
+    // Verificamos si es admin o si es el responsable del departamento de la actividad
+    const esDuenio = userRole === 'responsable' && selectedEvent.extendedProps.departamento === userDept;
+
+    if (userRole !== 'admin' && !esDuenio) {
+      toast.error("No tienes permisos para cambiar el estado de esta actividad");
       return;
     }
 
@@ -282,7 +285,6 @@ const CalendarView = () => {
   };
 
   const eliminarActividad = async (id) => {
-    // Verificamos si tiene permiso antes de intentar borrar
     const esDuenio = userRole === 'responsable' && selectedEvent.extendedProps.departamento === userDept;
     
     if (userRole !== 'admin' && !esDuenio) {
@@ -297,7 +299,7 @@ const CalendarView = () => {
       } else {
         toast.success("Actividad eliminada");
         setSelectedEvent(null);
-        fetchActividades();
+        fetchEvents();
       }
     }
   };
@@ -322,16 +324,14 @@ const CalendarView = () => {
             <Download size={18} /> Exportar PDF
           </button>
           
-          {/* RESTRICCIÓN DE BOTÓN POR ROL */}
-          {/* Ahora permite entrar a admin y responsable (cualquiera que NO sea visor) */}
-{userRole !== 'visor' && (
-  <button 
-    onClick={() => setIsModalOpen(true)} 
-    className="flex-1 md:flex-none bg-[#003876] text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-800 shadow-md transition-all active:scale-95 font-bold"
-  >
-    <Plus size={18} /> Nueva Actividad
-  </button>
-)}
+          {userRole !== 'visor' && (
+            <button 
+              onClick={() => setIsModalOpen(true)} 
+              className="flex-1 md:flex-none bg-[#003876] text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-800 shadow-md transition-all active:scale-95 font-bold"
+            >
+              <Plus size={18} /> Nueva Actividad
+            </button>
+          )}
         </div>
       </div>
 
@@ -364,7 +364,6 @@ const CalendarView = () => {
                   value={formData.titulo} onChange={e => setFormData({...formData, titulo: e.target.value})} />
               </div>
 
-              {/* SELECTOR DE DEPARTAMENTO DINÁMICO */}
               <div className="md:col-span-2">
                 <label className="text-xs font-bold text-gray-500 uppercase ml-1">Departamento *</label>
                 <select 
@@ -434,12 +433,12 @@ const CalendarView = () => {
                 <button onClick={() => setSelectedEvent(null)}><X size={24} className="text-gray-400"/></button>
               </div>
               
-              {/* SELECTOR DE ESTADO (EDITABLE SOLO POR ADMIN) */}
+              {/* SELECTOR DE ESTADO (EDITABLE POR ADMIN O RESPONSABLE DEL DEPTO) */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Estado de Actividad</label>
                 <select 
-                  disabled={userRole !== 'admin'}
-                  className={`w-full border rounded-lg p-2 text-sm font-bold outline-none ${getStatusBadgeClass(selectedEvent.extendedProps.progreso)} ${userRole !== 'admin' ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  disabled={userRole !== 'admin' && (userRole !== 'responsable' || selectedEvent.extendedProps.departamento !== userDept)}
+                  className={`w-full border rounded-lg p-2 text-sm font-bold outline-none ${getStatusBadgeClass(selectedEvent.extendedProps.progreso)} ${(userRole !== 'admin' && (userRole !== 'responsable' || selectedEvent.extendedProps.departamento !== userDept)) ? 'opacity-70 cursor-not-allowed' : ''}`}
                   value={selectedEvent.extendedProps.progreso}
                   onChange={(e) => actualizarEstado(selectedEvent.id, e.target.value)}
                 >
@@ -455,11 +454,10 @@ const CalendarView = () => {
                   <Target size={16} className="text-blue-600"/> <b>Meta:</b> {selectedEvent.extendedProps.meta || 'N/A'}
                 </div>
                 <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-700 italic border-l-4 border-blue-500">
-                   {selectedEvent.extendedProps.descripcion || 'Sin descripción'}
+                    {selectedEvent.extendedProps.descripcion || 'Sin descripción'}
                 </div>
               </div>
 
-              {/* RECORDATORIO MANUAL (TODOS PUEDEN ENVIAR SI ESTÁN AUTENTICADOS) */}
               <button 
                 onClick={enviarRecordatorioManual} 
                 disabled={sendingRecordatorio}
@@ -469,15 +467,14 @@ const CalendarView = () => {
               </button>
 
               <div className="pt-4 flex gap-2 border-t">
-                {/* Lógica: Si es Admin, borra todo. Si es Responsable, borra solo lo de su departamento */}
-{(userRole === 'admin' || (userRole === 'responsable' && selectedEvent.extendedProps.departamento === userDept)) && (
-  <button 
-    onClick={() => eliminarActividad(selectedEvent.id)} 
-    className="flex-1 bg-red-100 text-red-600 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-red-200 transition-colors"
-  >
-    <Trash2 size={16}/> Eliminar
-  </button>
-)}
+                {(userRole === 'admin' || (userRole === 'responsable' && selectedEvent.extendedProps.departamento === userDept)) && (
+                  <button 
+                    onClick={() => eliminarActividad(selectedEvent.id)} 
+                    className="flex-1 bg-red-100 text-red-600 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-red-200 transition-colors"
+                  >
+                    <Trash2 size={16}/> Eliminar
+                  </button>
+                )}
                 <button onClick={() => setSelectedEvent(null)} className="flex-1 bg-gray-100 text-gray-600 py-2 rounded-lg font-bold hover:bg-gray-200">
                   Cerrar
                 </button>
