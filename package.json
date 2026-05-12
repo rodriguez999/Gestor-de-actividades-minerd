@@ -18,6 +18,8 @@
     "@rolldown/binding-win32-x64-msvc": "^1.0.0-rc.11",
     "@supabase/supabase-js": "^2.99.3",
     "@tailwindcss/vite": "^4.2.2",
+    "date-fns": "^4.1.0",
+    "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.577.0",

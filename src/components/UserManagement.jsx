@@ -1,11 +1,27 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient';
-import { UserPlus, Mail, Shield, Building, Loader2, Trash2, Lock, User } from 'lucide-react';
+import { supabase } from '../supabaseClient'; 
+import { UserPlus, Loader2, Trash2, Edit3, X, Mail, User, Lock, Building } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+
+const DEPARTAMENTOS_OFICIALES = [
+  "Dirección de Currículo", "Departamento de Cultura y Cultos", "Departamento de Informática Educativa",
+  "Dirección de Educación Inicial", "Dirección de Educación Primaria", "Dirección de Educación Secundaria",
+  "Departamento de Educación Secundaria Modalidad Académica", "Departamento de Educación Secundaria Modalidad Técnico Profesional",
+  "Departamento de Educación Secundaria Modalidad en Artes", "Dirección de Educación de Personas Jóvenes y Adultas",
+  "Departamento de Alfabetización", "Departamento de Educación Primaria de Personas Jóvenes y Adultas",
+  "Departamento de Educación Secundaria de Personas Jóvenes y Adultas-Prepara", "Departamento de Educación Laboral",
+  "Departamento de Educación Virtual", "Dirección de Educación Especial", "Dirección de Orientación y Psicología",
+  "Dirección de Medios Educativos", "Dirección de Participación Comunitaria", "Dirección Editorial Educativa",
+  "Dirección de Radio y Televisión Educativa y Cultural “Edu+”", "PLE-RD, Programa de Liderazgo Educativo",
+  "Unidad de Inglés", "Programa Salud Escolar", "Programa Huertos Escolares", "General"
+];
 
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -15,7 +31,7 @@ const UserManagement = () => {
   });
 
   const fetchUsers = async () => {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('perfiles')
       .select('*')
       .order('nombre_completo', { ascending: true });
@@ -24,165 +40,224 @@ const UserManagement = () => {
 
   useEffect(() => { fetchUsers(); }, []);
 
+  // --- LÓGICA DE CREACIÓN ---
   const handleCreateUser = async (e) => {
     e.preventDefault();
     setLoading(true);
-
-    // 1. Crear usuario en Auth
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-      options: { data: { nombre_completo: formData.nombre_completo } }
-    });
-
-    if (authError) {
-      toast.error("Error al crear acceso: " + authError.message);
-      setLoading(false);
-    } else {
+    try {
+      const { error } = await supabase.from('perfiles').insert([{
+        nombre_completo: formData.nombre_completo,
+        email: formData.email,
+        password: formData.password,
+        rol: formData.rol,
+        departamento: formData.departamento
+      }]);
+      if (error) throw error;
       toast.success("Usuario creado exitosamente");
       setFormData({ email: '', password: '', nombre_completo: '', rol: 'visor', departamento: 'General' });
       fetchUsers();
-      setLoading(false);
+    } catch (error) {
+      toast.error("Error: " + error.message);
+    } finally { setLoading(false); }
+  };
+
+  // --- LÓGICA DE ELIMINACIÓN ---
+  const handleDeleteUser = async (id) => {
+    if (!window.confirm("¿Eliminar este usuario?")) return;
+    const { error } = await supabase.from('perfiles').delete().eq('id', id);
+    if (!error) {
+      toast.success("Usuario eliminado");
+      fetchUsers();
     }
   };
 
-  // FUNCIÓN PARA ELIMINAR USUARIO
-  const handleDeleteUser = async (userId, userName) => {
-    const confirmacion = window.confirm(`¿Estás seguro de eliminar a ${userName}? Esta acción borrará su perfil de la base de datos.`);
-    
-    if (!confirmacion) return;
+  // --- LÓGICA DE ACTUALIZACIÓN ---
+  const openEditModal = (user) => {
+    setSelectedUser({ ...user }); // Clonamos para no editar la lista original directamente
+    setIsEditModalOpen(true);
+  };
 
+  const handleUpdateUser = async (e) => {
+    e.preventDefault();
+    setLoading(true);
     try {
       const { error } = await supabase
         .from('perfiles')
-        .delete()
-        .eq('id', userId);
+        .update({
+          nombre_completo: selectedUser.nombre_completo,
+          email: selectedUser.email,
+          password: selectedUser.password,
+          rol: selectedUser.rol,
+          departamento: selectedUser.departamento
+        })
+        .eq('id', selectedUser.id);
 
       if (error) throw error;
-
-      toast.success("Usuario eliminado correctamente");
+      toast.success("Usuario actualizado correctamente");
+      setIsEditModalOpen(false);
       fetchUsers();
     } catch (error) {
-      toast.error("Error al eliminar: " + error.message);
-    }
+      toast.error("Error al actualizar: " + error.message);
+    } finally { setLoading(false); }
   };
 
   return (
-    <div className="p-8 ml-15 bg-gray-50 min-h-screen">
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <div className="p-4 bg-gray-50 min-h-screen">
+      <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
         
-        {/* FORMULARIO DE REGISTRO */}
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 h-fit">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="bg-blue-50 p-2 rounded-xl text-[#003876]"><UserPlus size={24}/></div>
-            <h2 className="text-xl font-black text-gray-800">Nuevo Usuario</h2>
-          </div>
-
-          <form onSubmit={handleCreateUser} className="space-y-5">
-            <div>
-              <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Nombre Completo</label>
-              <div className="relative">
-                <User className="absolute left-3 top-3 text-gray-400" size={18} />
-                <input required className="w-full pl-10 pr-4 py-3 bg-gray-50 rounded-xl border-none focus:ring-2 focus:ring-blue-500 outline-none font-medium"
-                  placeholder="Ej. Juan Pérez"
-                  value={formData.nombre_completo} onChange={(e) => setFormData({...formData, nombre_completo: e.target.value})} />
-              </div>
+        {/* Formulario Lateral de Creación */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border h-fit sticky top-24">
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-[#003876]">
+            <UserPlus size={24}/> Nuevo Acceso
+          </h2>
+          <form onSubmit={handleCreateUser} className="space-y-4">
+            <div className="relative">
+              <User className="absolute left-3 top-3.5 text-gray-400" size={18} />
+              <input required placeholder="Nombre Completo" className="w-full pl-10 pr-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-500"
+                value={formData.nombre_completo} onChange={e => setFormData({...formData, nombre_completo: e.target.value})} />
             </div>
-
-            <div>
-              <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Correo Institucional</label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-3 text-gray-400" size={18} />
-                <input type="email" required className="w-full pl-10 pr-4 py-3 bg-gray-50 rounded-xl border-none focus:ring-2 focus:ring-blue-500 outline-none font-medium"
-                  placeholder="usuario@minerd.gob.do"
-                  value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} />
-              </div>
+            
+            <div className="relative">
+              <Mail className="absolute left-3 top-3.5 text-gray-400" size={18} />
+              <input type="email" required placeholder="Correo Institucional" className="w-full pl-10 pr-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-500"
+                value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
             </div>
-
-            <div>
-              <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Contraseña Temporal</label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3 text-gray-400" size={18} />
-                <input type="password" required className="w-full pl-10 pr-4 py-3 bg-gray-50 rounded-xl border-none focus:ring-2 focus:ring-blue-500 outline-none font-medium"
-                  placeholder="••••••••"
-                  value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} />
-              </div>
+            
+            <div className="relative">
+              <Lock className="absolute left-3 top-3.5 text-gray-400" size={18} />
+              <input type="password" required placeholder="Contraseña" className="w-full pl-10 pr-4 py-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-500"
+                value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
             </div>
+            
+            <select className="w-full p-3 bg-gray-50 rounded-xl font-bold outline-none border-none focus:ring-2 focus:ring-blue-500" value={formData.rol} onChange={e => setFormData({...formData, rol: e.target.value})}>
+              <option value="admin">Administrador</option>
+              <option value="responsable">Responsable</option>
+              <option value="visor">Visor</option>
+            </select>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Rol</label>
-                <select className="w-full p-3 bg-gray-50 rounded-xl border-none focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-600"
-                  value={formData.rol} onChange={(e) => setFormData({...formData, rol: e.target.value})}>
-                  <option value="admin">Admin</option>
-                  <option value="responsable">Responsable</option>
-                  <option value="visor">Visor</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Departamento</label>
-                <select className="w-full p-3 bg-gray-50 rounded-xl border-none focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-600"
-                  value={formData.departamento} onChange={(e) => setFormData({...formData, departamento: e.target.value})}>
-                  <option value="Informatica Educativa">Informática</option>
-                  <option value="Recursos Humanos">RRHH</option>
-                  <option value="Planificación">Planificación</option>
-                  <option value="General">General</option>
-                </select>
-              </div>
-            </div>
+            <select className="w-full p-3 bg-gray-50 rounded-xl text-xs outline-none border-none focus:ring-2 focus:ring-blue-500" value={formData.departamento} onChange={e => setFormData({...formData, departamento: e.target.value})}>
+              {DEPARTAMENTOS_OFICIALES.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
 
-            <button type="submit" disabled={loading} className="w-full bg-[#003876] text-white py-4 rounded-xl font-bold hover:bg-blue-900 transition-all shadow-lg flex items-center justify-center gap-2">
-              {loading ? <Loader2 className="animate-spin" size={20} /> : "Registrar Usuario"}
+            <button type="submit" disabled={loading} className="w-full bg-[#003876] text-white py-4 rounded-xl font-bold hover:bg-blue-900 shadow-lg transition-all flex items-center justify-center gap-2">
+              {loading ? <Loader2 className="animate-spin" /> : "Registrar Usuario"}
             </button>
           </form>
         </div>
 
-        {/* LISTADO DE USUARIOS */}
-        <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden h-fit">
-          <div className="p-6 border-b bg-gray-50/50">
-            <h3 className="font-black text-gray-700 uppercase text-sm tracking-widest">Usuarios Registrados</h3>
+        {/* Tabla de Usuarios */}
+        <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border overflow-hidden">
+          <div className="p-6 border-b bg-gray-50/50 flex justify-between items-center">
+            <h3 className="font-bold text-gray-700">PERSONAL VSTP</h3>
+            <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-3 py-1 rounded-full uppercase">
+              {users.length} Registrados
+            </span>
           </div>
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50/50">
-                <th className="p-4 text-[10px] font-black text-gray-400 uppercase">Nombre</th>
-                <th className="p-4 text-[10px] font-black text-gray-400 uppercase">Departamento</th>
-                <th className="p-4 text-[10px] font-black text-gray-400 uppercase">Rol</th>
-                <th className="p-4 text-[10px] font-black text-gray-400 uppercase text-center">Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map(u => (
-                <tr key={u.id} className="border-b last:border-0 hover:bg-blue-50/30 transition-colors">
-                  <td className="p-4 font-bold text-gray-700 text-sm">{u.nombre_completo}</td>
-                  <td className="p-4"><span className="flex items-center gap-1 text-gray-500 text-xs font-medium"><Building size={14}/> {u.departamento}</span></td>
-                  <td className="p-4">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase shadow-sm ${
-                      u.rol === 'admin' ? 'bg-red-50 text-red-600 border border-red-100' : 
-                      u.rol === 'responsable' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
-                      'bg-blue-50 text-blue-600 border border-blue-100'
-                    }`}>
-                      {u.rol}
-                    </span>
-                  </td>
-                  <td className="p-4 text-center">
-                    <button 
-                      onClick={() => handleDeleteUser(u.id, u.nombre_completo)}
-                      className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                      title="Eliminar usuario"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-wider">Datos</th>
+                  <th className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-wider text-center">Dependencia</th>
+                  <th className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-wider text-center">Rol</th>
+                  <th className="p-4 text-right"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          {users.length === 0 && (
-            <div className="p-10 text-center text-gray-400 text-sm font-medium">No hay usuarios registrados todavía.</div>
-          )}
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {users.map(u => (
+                  <tr key={u.id} className="hover:bg-gray-50 transition-colors group">
+                    <td className="p-4">
+                      <div className="font-bold text-sm text-gray-800">{u.nombre_completo}</div>
+                      <div className="text-[11px] text-gray-400 font-medium">{u.email}</div>
+                    </td>
+                    <td className="p-4 text-center">
+                      <span className="text-[10px] text-gray-500 flex items-center justify-center gap-1">
+                        <Building size={12}/> {u.departamento}
+                      </span>
+                    </td>
+                    <td className="p-4 text-center">
+                      <span className={`text-[10px] font-black px-2 py-1 rounded-md uppercase ${
+                        u.rol === 'admin' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'
+                      }`}>
+                        {u.rol}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => openEditModal(u)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
+                          <Edit3 size={18}/>
+                        </button>
+                        <button onClick={() => handleDeleteUser(u.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg">
+                          <Trash2 size={18}/>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
+
+      {/* MODAL DE EDICIÓN (Lógica de Actualización) */}
+      {isEditModalOpen && selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 relative animate-in zoom-in-95 duration-200">
+            <button onClick={() => setIsEditModalOpen(false)} className="absolute right-6 top-6 text-gray-400 hover:text-gray-600">
+              <X size={24}/>
+            </button>
+            
+            <div className="mb-6">
+              <h3 className="text-2xl font-black text-[#003876]">Editar Acceso</h3>
+              <p className="text-sm text-gray-400 font-medium">Actualiza la información del colaborador</p>
+            </div>
+
+            <form onSubmit={handleUpdateUser} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Nombre Completo</label>
+                <input required className="w-full p-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  value={selectedUser.nombre_completo} onChange={e => setSelectedUser({...selectedUser, nombre_completo: e.target.value})} />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Correo Institucional</label>
+                <input required type="email" className="w-full p-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  value={selectedUser.email} onChange={e => setSelectedUser({...selectedUser, email: e.target.value})} />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Cambiar Contraseña</label>
+                <input type="text" className="w-full p-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  value={selectedUser.password} onChange={e => setSelectedUser({...selectedUser, password: e.target.value})} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Rol</label>
+                  <select className="w-full p-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-500 font-bold" 
+                    value={selectedUser.rol} onChange={e => setSelectedUser({...selectedUser, rol: e.target.value})}>
+                    <option value="admin">Admin</option>
+                    <option value="responsable">Responsable</option>
+                    <option value="visor">Visor</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Dependencia</label>
+                  <select className="w-full p-3 bg-gray-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-500 text-[10px]" 
+                    value={selectedUser.departamento} onChange={e => setSelectedUser({...selectedUser, departamento: e.target.value})}>
+                    {DEPARTAMENTOS_OFICIALES.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <button type="submit" disabled={loading} className="w-full bg-[#003876] text-white py-4 rounded-2xl font-bold shadow-xl shadow-blue-900/20 hover:bg-blue-900 transition-all mt-4">
+                {loading ? <Loader2 className="animate-spin mx-auto" /> : "Guardar Cambios"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
